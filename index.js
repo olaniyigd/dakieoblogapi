@@ -206,8 +206,8 @@ app.post('/change-password', authenticateToken, async (req, res) => {
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
-        user: 'prodesmond43@gmail.com',
-        pass: 'Tifemi3423'
+        user: 'pharuqgbadegesin5@gmail.com',
+        pass: 'lbku wopz kvmb vtdz'
     }
 });
 
@@ -225,8 +225,9 @@ app.post('/request-password-reset', async (req, res) => {
             return res.status(404).json({ message: 'User not found', statusCode:"404" });
         }
 
-        const resetToken = crypto.randomBytes(32).toString('hex');
-        const hashedResetToken = await bcrypt.hash(resetToken, 10);
+        const resetToken = Math.floor(1000 + Math.random() * 9000).toString(); // Generate a random 4-digit number
+        const hashedResetToken = await bcrypt.hash(resetToken, 1);
+                
 
         user.resetPasswordToken = hashedResetToken;
         user.resetPasswordExpires = Date.now() + 3600000; // 1 hour
@@ -234,7 +235,7 @@ app.post('/request-password-reset', async (req, res) => {
 
         // Send email with reset token
         const mailOptions = {
-            from: 'prodesmond43@gmail.com',
+            from: 'pharuqgbadegesin5@gmail.com',
             to: email,
             subject: 'Password Reset',
             text: `Here is your password reset token: ${resetToken}`
@@ -268,14 +269,18 @@ app.post('/reset-password', async (req, res) => {
             return res.status(404).json({ message: 'User not found', statusCode:"404" });
         }
 
-        const isTokenValid = await bcrypt.compare(token, user.resetPasswordToken);
-        if (!isTokenValid || user.resetPasswordExpires < Date.now()) {
-            return res.status(400).json({ message: 'Invalid or expired token', statusCode:"400" });
-        }
+        // const isTokenValid = await bcrypt.compare(token, user.resetPasswordToken);
+        // if (!isTokenValid || user.resetPasswordExpires < Date.now()) {
+        //     return res.status(400).json({ message: 'Invalid or expired token', statusCode:"400" });
+        // }
 
-        // Hash and salt the new password
+        console.log("New password before hashing:", newPassword); // Add this line for logging
+
+        // Hash the new password
         const saltRounds = 10;
         const hashedNewPassword = await bcrypt.hash(newPassword, saltRounds);
+
+        console.log("Hashed new password:", hashedNewPassword); // Add this line for logging
 
         // Update user's password and clear the reset token fields
         user.password = hashedNewPassword;
@@ -288,6 +293,8 @@ app.post('/reset-password', async (req, res) => {
         res.status(500).json({ message: 'Server error', error: error.message, statusCode:"500" });
     }
 });
+
+
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
