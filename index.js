@@ -7,7 +7,7 @@ const nodemailer = require('nodemailer');
 const multer = require('multer');
 const path = require('path');
 const User = require('./User'); // Import the User model
-const Wallet = require('./Wallet'); // Import the Wallet model
+const Wallet = require('./wallet'); // Import the Wallet model
 const Content = require('./Content'); // Import the Content model
 
 dotenv.config();
