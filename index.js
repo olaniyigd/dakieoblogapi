@@ -3,19 +3,22 @@ const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
 const nodemailer = require('nodemailer');
+const multer = require('multer');
+const path = require('path');
 const User = require('./User'); // Import the User model
-const Wallet = require('./wallet'); // Import the Wallet model
+const Wallet = require('./Wallet'); // Import the Wallet model
+const Content = require('./Content'); // Import the Content model
 
 dotenv.config();
 const app = express();
 
 app.use(express.json());
+app.use('/uploads', express.static('uploads')); // Serve static files from the "uploads" directory
 
-const mongoURI = "mongodb+srv://dakieopay:dakieopay@cluster2.fbdblql.mongodb.net/";
-const jwtSecret = "olaniyi";
-const resetPasswordTokenSecret = "inioluwa";
+const mongoURI = process.env.MONGO_URI || "mongodb+srv://dakieopay:dakieopay@cluster2.fbdblql.mongodb.net/";
+const jwtSecret = process.env.JWT_SECRET || "olaniyi";
+const resetPasswordTokenSecret = process.env.RESET_PASSWORD_TOKEN_SECRET || "inioluwa";
 
 if (!jwtSecret || !resetPasswordTokenSecret) {
     console.error("JWT_SECRET or RESET_PASSWORD_TOKEN_SECRET is not defined in environment variables.");
@@ -65,25 +68,21 @@ app.post('/signup', async (req, res) => {
 app.post('/login', async (req, res) => {
     const { email, password } = req.body;
 
-    // Validate the input
     if (!email || !password) {
         return res.status(400).json({ message: {email:"email is required", password:"password is required"} });
     }
 
     try {
-        // Check if the user exists
         const user = await User.findOne({ email });
         if (!user) {
             return res.status(400).json({ message: 'Invalid email or password', statusCode:"400" });
         }
 
-        // Compare the password with the stored hashed password
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
             return res.status(400).json({ message: 'Invalid email or password', statusCode:"400" });
         }
 
-        // Generate a token
         const token = jwt.sign({ id: user._id }, jwtSecret, { expiresIn: '1h' });
 
         res.status(200).json({
@@ -100,6 +99,18 @@ app.post('/login', async (req, res) => {
     }
 });
 
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, path.join(__dirname, 'uploads'));
+    },
+    filename: (req, file, cb) => {
+        cb(null, `${Date.now()}-${file.originalname}`);
+    }
+});
+const upload = multer({ storage });
+
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 // Middleware to authenticate token
 const authenticateToken = (req, res, next) => {
     const token = req.header('Authorization')?.split(' ')[1];
@@ -111,6 +122,38 @@ const authenticateToken = (req, res, next) => {
         next();
     });
 };
+
+// Post content with image
+app.post('/content', authenticateToken, upload.single('image'), async (req, res) => {
+    const { text } = req.body;
+
+    if (!text || !req.file) {
+        return res.status(400).json({ message: 'Text and image are required', statusCode: "400" });
+    }
+
+    try {
+        const imagePath = req.file.path;
+        const newContent = new Content({ text, imagePath, userId: req.user.id });
+        await newContent.save();
+
+        res.status(201).json({ message: 'Content created successfully', statusCode: "201" });
+    } catch (error) {
+        res.status(500).json({ message: 'Server error', error: error.message, statusCode: "500" });
+    }
+});
+
+// Get content image
+app.get('/content/:id/image', async (req, res) => {
+    try {
+        const content = await Content.findById(req.params.id);
+        if (!content) {
+            return res.status(404).json({ message: 'Content not found', statusCode:"404" });
+        }
+        res.sendFile(path.resolve(content.imagePath));
+    } catch (error) {
+        res.status(500).json({ message: 'Server error', error: error.message, statusCode:"500" });
+    }
+});
 
 // Get wallet details by userId
 app.get('/wallet/:userId', authenticateToken, async (req, res) => {
@@ -125,23 +168,78 @@ app.get('/wallet/:userId', authenticateToken, async (req, res) => {
     }
 });
 
+// Get wallet transaction history by userId
+app.get('/wallet/:userId/transactions', authenticateToken, async (req, res) => {
+    try {
+        const wallet = await Wallet.findOne({ userId: req.params.userId }).select('transactions');
+        if (!wallet) {
+            return res.status(404).json({ message: 'Wallet not found', statusCode: "404" });
+        }
+        res.status(200).json({ transactions: wallet.transactions, statusCode: "200" });
+    } catch (error) {
+        res.status(500).json({ message: 'Server error', error: error.message, statusCode: "500" });
+    }
+});
+
+// Get single transaction by transactionId
+app.get('/wallet/:userId/transactions/:transactionId', authenticateToken, async (req, res) => {
+    try {
+        const wallet = await Wallet.findOne({ userId: req.params.userId }).select('transactions');
+        if (!wallet) {
+            return res.status(404).json({ message: 'Wallet not found', statusCode: "404" });
+        }
+        const transaction = wallet.transactions.id(req.params.transactionId);
+        if (!transaction) {
+            return res.status(404).json({ message: 'Transaction not found', statusCode: "404" });
+        }
+        res.status(200).json({ transaction, statusCode: "200" });
+    } catch (error) {
+        res.status(500).json({ message: 'Server error', error: error.message, statusCode: "500" });
+    }
+});
+
+// Get all images posted by the user
+app.get('/content/images', authenticateToken, async (req, res) => {
+    try {
+        const contents = await Content.find({ userId: req.user.id });
+        if (!contents.length) {
+            return res.status(404).json({ message: 'No content found', statusCode: "404" });
+        }
+
+        const images = contents.map(content => ({
+            text: content.text,
+            imagePath: content.imagePath,
+            createdAt: content.createdAt
+        }));
+
+        res.status(200).json({ images, statusCode: "200" });
+    } catch (error) {
+        res.status(500).json({ message: 'Server error', error: error.message, statusCode: "500" });
+    }
+});
+
 // Add to available balance
 app.post('/wallet/:userId/balance', authenticateToken, async (req, res) => {
     const { availableBalance } = req.body;
     if (typeof availableBalance !== 'number') {
-        return res.status(400).json({ message: 'Available balance must be a number', statusCode:"400" });
+        return res.status(400).json({ message: 'Available balance must be a number', statusCode: "400" });
     }
 
     try {
         const wallet = await Wallet.findOne({ userId: req.params.userId });
         if (!wallet) {
-            return res.status(404).json({ message: 'Wallet not found', statusCode:"404" });
+            return res.status(404).json({ message: 'Wallet not found', statusCode: "404" });
         }
         wallet.availableBalance += availableBalance;
+        wallet.transactions.push({
+            type: 'credit',
+            amount: availableBalance,
+            description: 'Added to available balance'
+        });
         await wallet.save();
-        res.status(200).json({ message: 'Available balance added successfully', statusCode:"200" });
+        res.status(200).json({ message: 'Available balance added successfully', statusCode: "200" });
     } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message, statusCode:"500" });
+        res.status(500).json({ message: 'Server error', error: error.message, statusCode: "500" });
     }
 });
 
@@ -149,57 +247,58 @@ app.post('/wallet/:userId/balance', authenticateToken, async (req, res) => {
 app.post('/wallet/:userId/balance/deduct', authenticateToken, async (req, res) => {
     const { availableBalance } = req.body;
     if (typeof availableBalance !== 'number') {
-        return res.status(400).json({ message: 'Available balance must be a number', statusCode:"400" });
+        return res.status(400).json({ message: 'Available balance must be a number', statusCode: "400" });
     }
 
     try {
         const wallet = await Wallet.findOne({ userId: req.params.userId });
         if (!wallet) {
-            return res.status(404).json({ message: 'Wallet not found', statusCode:"404" });
+            return res.status(404).json({ message: 'Wallet not found', statusCode: "404" });
         }
         if (wallet.availableBalance < availableBalance) {
-            return res.status(400).json({ message: 'Insufficient balance', statusCode:"400" });
+            return res.status(400).json({ message: 'Insufficient balance', statusCode: "400" });
         }
         wallet.availableBalance -= availableBalance;
+        wallet.transactions.push({
+            type: 'debit',
+            amount: availableBalance,
+            description: 'Deducted from available balance'
+        });
         await wallet.save();
-        res.status(200).json({ message: 'Available balance deducted successfully', statusCode:"200" });
+        res.status(200).json({ message: 'Available balance deducted successfully', statusCode: "200" });
     } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message, statusCode:"500" });
+        res.status(500).json({ message: 'Server error', error: error.message, statusCode: "500" });
     }
 });
 
-// Change user password
+// Change password
 app.post('/change-password', authenticateToken, async (req, res) => {
     const { currentPassword, newPassword } = req.body;
 
-    // Validate input
     if (!currentPassword || !newPassword) {
-        return res.status(400).json({ message: 'Current password and new password are required', statusCode:"400" });
+        return res.status(400).json({ message: 'Current password and new password are required', statusCode: "400" });
     }
 
     try {
         const user = await User.findById(req.user.id);
         if (!user) {
-            return res.status(404).json({ message: 'User not found', statusCode:"404" });
+            return res.status(404).json({ message: 'User not found', statusCode: "404" });
         }
 
-        // Compare current password with stored hashed password
         const isMatch = await bcrypt.compare(currentPassword, user.password);
         if (!isMatch) {
-            return res.status(400).json({ message: 'Current password is incorrect', statusCode:"400" });
+            return res.status(400).json({ message: 'Current password is incorrect', statusCode: "400" });
         }
 
-        // Hash and salt the new password
         const saltRounds = 10;
         const hashedNewPassword = await bcrypt.hash(newPassword, saltRounds);
 
-        // Update user's password
         user.password = hashedNewPassword;
         await user.save();
 
-        res.status(200).json({ message: 'Password updated successfully', statusCode:"200" });
+        res.status(200).json({ message: 'Password updated successfully', statusCode: "200" });
     } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message, statusCode:"500" });
+        res.status(500).json({ message: 'Server error', error: error.message, statusCode: "500" });
     }
 });
 
@@ -216,24 +315,22 @@ app.post('/request-password-reset', async (req, res) => {
     const { email } = req.body;
 
     if (!email) {
-        return res.status(400).json({ message: 'Email is required', statusCode:"400" });
+        return res.status(400).json({ message: 'Email is required', statusCode: "400" });
     }
 
     try {
         const user = await User.findOne({ email });
         if (!user) {
-            return res.status(404).json({ message: 'User not found', statusCode:"404" });
+            return res.status(404).json({ message: 'User not found', statusCode: "404" });
         }
 
-        const resetToken = Math.floor(1000 + Math.random() * 9000).toString(); // Generate a random 4-digit number
+        const resetToken = Math.floor(1000 + Math.random() * 9000).toString();
         const hashedResetToken = await bcrypt.hash(resetToken, 1);
-                
 
         user.resetPasswordToken = hashedResetToken;
-        user.resetPasswordExpires = Date.now() + 3600000; // 1 hour
+        user.resetPasswordExpires = Date.now() + 3600000;
         await user.save();
 
-        // Send email with reset token
         const mailOptions = {
             from: 'pharuqgbadegesin5@gmail.com',
             to: email,
@@ -244,57 +341,48 @@ app.post('/request-password-reset', async (req, res) => {
         transporter.sendMail(mailOptions, (error, info) => {
             if (error) {
                 console.error('Error sending email:', error);
-                return res.status(500).json({ message: 'Error sending email', error: error.message, statusCode:"500" });
+                return res.status(500).json({ message: 'Error sending email', error: error.message, statusCode: "500" });
             }
             console.log('Email sent:', info.response);
-            res.status(200).json({ message: 'Password reset token generated and sent via email', statusCode:"200" });
+            res.status(200).json({ message: 'Password reset token generated and sent via email', statusCode: "200" });
         });
     } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message, statusCode:"500" });
+        res.status(500).json({ message: 'Server error', error: error.message, statusCode: "500" });
     }
 });
-
 
 // Reset password
 app.post('/reset-password', async (req, res) => {
     const { email, token, newPassword } = req.body;
 
     if (!email || !token || !newPassword) {
-        return res.status(400).json({ message: 'Email, token, and new password are required', statusCode:"400" });
+        return res.status(400).json({ message: 'Email, token, and new password are required', statusCode: "400" });
     }
 
     try {
         const user = await User.findOne({ email });
         if (!user) {
-            return res.status(404).json({ message: 'User not found', statusCode:"404" });
+            return res.status(404).json({ message: 'User not found', statusCode: "404" });
         }
 
         // const isTokenValid = await bcrypt.compare(token, user.resetPasswordToken);
         // if (!isTokenValid || user.resetPasswordExpires < Date.now()) {
-        //     return res.status(400).json({ message: 'Invalid or expired token', statusCode:"400" });
+        //     return res.status(400).json({ message: 'Invalid or expired token', statusCode: "400" });
         // }
 
-        console.log("New password before hashing:", newPassword); // Add this line for logging
-
-        // Hash the new password
         const saltRounds = 10;
         const hashedNewPassword = await bcrypt.hash(newPassword, saltRounds);
 
-        console.log("Hashed new password:", hashedNewPassword); // Add this line for logging
-
-        // Update user's password and clear the reset token fields
         user.password = hashedNewPassword;
         user.resetPasswordToken = undefined;
         user.resetPasswordExpires = undefined;
         await user.save();
 
-        res.status(200).json({ message: 'Password reset successfully', statusCode:"200" });
+        res.status(200).json({ message: 'Password reset successfully', statusCode: "200" });
     } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message, statusCode:"500" });
+        res.status(500).json({ message: 'Server error', error: error.message, statusCode: "500" });
     }
 });
-
-
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
