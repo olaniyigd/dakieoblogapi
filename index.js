@@ -16,9 +16,9 @@ const app = express();
 app.use(express.json());
 app.use('/uploads', express.static('uploads')); 
 
-const mongoURI = process.env.MONGO_URI || "mongodb+srv://gbadegesinpharuq:8ahPzXgHFMgdXucq@cluster0.g86pl.mongodb.net/";
-const jwtSecret = process.env.JWT_SECRET || "olaniyi";
-const resetPasswordTokenSecret = process.env.RESET_PASSWORD_TOKEN_SECRET || "inioluwa";
+const mongoURI = process.env.MONGO_URI;
+const jwtSecret = process.env.JWT_SECRET;
+const resetPasswordTokenSecret = process.env.RESET_PASSWORD_TOKEN_SECRET;
 
 if (!jwtSecret || !resetPasswordTokenSecret) {
     console.error("JWT_SECRET or RESET_PASSWORD_TOKEN_SECRET is not defined in environment variables.");
@@ -271,8 +271,8 @@ app.post('/change-password', authenticateToken, async (req, res) => {
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
-        user: 'dakieopay@gmail.com',
-        pass: "zdra ogin scdo psdh"
+       user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
     }
 });
 
