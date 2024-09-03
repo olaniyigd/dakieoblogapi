@@ -6,23 +6,23 @@ const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 const multer = require('multer');
 const path = require('path');
-const User = require('./User'); // Import the User model
-const Wallet = require('./wallet'); // Import the Wallet model
-const Content = require('./Content'); // Import the Content model
+const fs = require('fs');
+const User = require('./User'); 
+const Content = require('./Content'); 
 
 dotenv.config();
 const app = express();
 
 app.use(express.json());
-app.use('/uploads', express.static('uploads')); // Serve static files from the "uploads" directory
+app.use('/uploads', express.static('uploads')); 
 
-const mongoURI = process.env.MONGO_URI || "mongodb+srv://dakieopay:dakieopay@cluster2.fbdblql.mongodb.net/";
-const jwtSecret = process.env.JWT_SECRET || "olaniyi";
-const resetPasswordTokenSecret = process.env.RESET_PASSWORD_TOKEN_SECRET || "inioluwa";
+const mongoURI = process.env.MONGO_URI;
+const jwtSecret = process.env.JWT_SECRET;
+const resetPasswordTokenSecret = process.env.RESET_PASSWORD_TOKEN_SECRET;
 
 if (!jwtSecret || !resetPasswordTokenSecret) {
     console.error("JWT_SECRET or RESET_PASSWORD_TOKEN_SECRET is not defined in environment variables.");
-    process.exit(1); // Exit the application if JWT_SECRET or RESET_PASSWORD_TOKEN_SECRET is not defined
+    process.exit(1); 
 }
 
 mongoose.connect(mongoURI, { useNewUrlParser: true, useUnifiedTopology: true })
@@ -56,8 +56,6 @@ app.post('/signup', async (req, res) => {
         const newUser = new User({ username, email, phoneNumber, password: hashedPassword });
         await newUser.save();
 
-        const newWallet = new Wallet({ userId: newUser._id });
-        await newWallet.save();
 
         res.status(201).json({ message: 'User created successfully', statusCode:"201" });
     } catch (error) {
@@ -125,15 +123,24 @@ const authenticateToken = (req, res, next) => {
 
 // Post content with image
 app.post('/content', authenticateToken, upload.single('image'), async (req, res) => {
-    const { text } = req.body;
+    const { title, description } = req.body;
 
-    if (!text || !req.file) {
-        return res.status(400).json({ message: 'Text and image are required', statusCode: "400" });
+    if (!title || !description || !req.file) {
+        return res.status(400).json({ message: 'Title, description, and image are required', statusCode: "400" });
     }
 
     try {
-        const imagePath = req.file.path;
-        const newContent = new Content({ text, imagePath, userId: req.user.id });
+        // Construct the image URL
+        const imageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+
+        const newContent = new Content({
+            userId: req.user.id,
+            title,
+            description,
+            imagePath: imageUrl,
+            createdAt: Date.now()
+        });
+
         await newContent.save();
 
         res.status(201).json({ message: 'Content created successfully', statusCode: "201" });
@@ -142,130 +149,89 @@ app.post('/content', authenticateToken, upload.single('image'), async (req, res)
     }
 });
 
-// Get content image
-app.get('/content/:id/image', async (req, res) => {
+app.get('/contents', authenticateToken, async (req, res) => {
     try {
-        const content = await Content.findById(req.params.id);
+        const contents = await Content.find().populate('userId', 'username email'); // Populate the user's details
+        res.status(200).json({ contents, statusCode: "200" });
+    } catch (error) {
+        res.status(500).json({ message: 'Server error', error: error.message, statusCode: "500" });
+    }
+});
+
+// Get single content post
+app.get('/content/:id', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        // Find the post by ID
+        const content = await Content.findById(id).populate('userId', 'username email');
         if (!content) {
-            return res.status(404).json({ message: 'Content not found', statusCode:"404" });
+            return res.status(404).json({ message: 'Content not found', statusCode: "404" });
         }
-        res.sendFile(path.resolve(content.imagePath));
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message, statusCode:"500" });
-    }
-});
 
-// Get wallet details by userId
-app.get('/wallet/:userId', authenticateToken, async (req, res) => {
-    try {
-        const wallet = await Wallet.findOne({ userId: req.params.userId });
-        if (!wallet) {
-            return res.status(404).json({ message: 'Wallet not found', statusCode:"404" });
-        }
-        res.status(200).json({ wallet, statusCode:"200" });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message, statusCode:"500" });
-    }
-});
-
-// Get wallet transaction history by userId
-app.get('/wallet/:userId/transactions', authenticateToken, async (req, res) => {
-    try {
-        const wallet = await Wallet.findOne({ userId: req.params.userId }).select('transactions');
-        if (!wallet) {
-            return res.status(404).json({ message: 'Wallet not found', statusCode: "404" });
-        }
-        res.status(200).json({ transactions: wallet.transactions, statusCode: "200" });
+        res.status(200).json({ content, statusCode: "200" });
     } catch (error) {
         res.status(500).json({ message: 'Server error', error: error.message, statusCode: "500" });
     }
 });
 
-// Get single transaction by transactionId
-app.get('/wallet/:userId/transactions/:transactionId', authenticateToken, async (req, res) => {
+// Update content post
+app.put('/content/:id', authenticateToken, upload.single('image'), async (req, res) => {
+    const { id } = req.params;
+    const { title, description } = req.body;
+    const { file } = req;
+
+    if (!title && !description && !file) {
+        return res.status(400).json({ message: 'At least one of title, description, or image is required', statusCode: "400" });
+    }
+
     try {
-        const wallet = await Wallet.findOne({ userId: req.params.userId }).select('transactions');
-        if (!wallet) {
-            return res.status(404).json({ message: 'Wallet not found', statusCode: "404" });
+        // Find the post by ID
+        const content = await Content.findById(id);
+        if (!content) {
+            return res.status(404).json({ message: 'Content not found', statusCode: "404" });
         }
-        const transaction = wallet.transactions.id(req.params.transactionId);
-        if (!transaction) {
-            return res.status(404).json({ message: 'Transaction not found', statusCode: "404" });
+
+        // Update fields if they are provided
+        if (title) content.title = title;
+        if (description) content.description = description;
+        if (file) {
+            // Update the image URL if a new image is uploaded
+            content.imagePath = `${req.protocol}://${req.get('host')}/uploads/${file.filename}`;
         }
-        res.status(200).json({ transaction, statusCode: "200" });
+
+        await content.save();
+
+        res.status(200).json({ message: 'Content updated successfully', statusCode: "200" });
     } catch (error) {
         res.status(500).json({ message: 'Server error', error: error.message, statusCode: "500" });
     }
 });
-
-// Get all images posted by the user
-app.get('/content/images', authenticateToken, async (req, res) => {
-    try {
-        const contents = await Content.find({ userId: req.user.id });
-        if (!contents.length) {
-            return res.status(404).json({ message: 'No content found', statusCode: "404" });
-        }
-
-        const images = contents.map(content => ({
-            text: content.text,
-            imagePath: content.imagePath,
-            createdAt: content.createdAt
-        }));
-
-        res.status(200).json({ images, statusCode: "200" });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message, statusCode: "500" });
-    }
-});
-
-// Add to available balance
-app.post('/wallet/:userId/balance', authenticateToken, async (req, res) => {
-    const { availableBalance } = req.body;
-    if (typeof availableBalance !== 'number') {
-        return res.status(400).json({ message: 'Available balance must be a number', statusCode: "400" });
-    }
+// Delete content post
+app.delete('/content/:id', authenticateToken, async (req, res) => {
+    const { id } = req.params;
 
     try {
-        const wallet = await Wallet.findOne({ userId: req.params.userId });
-        if (!wallet) {
-            return res.status(404).json({ message: 'Wallet not found', statusCode: "404" });
+        // Find the post by ID
+        const content = await Content.findById(id);
+        if (!content) {
+            return res.status(404).json({ message: 'Content not found', statusCode: "404" });
         }
-        wallet.availableBalance += availableBalance;
-        wallet.transactions.push({
-            type: 'credit',
-            amount: availableBalance,
-            description: 'Added to available balance'
-        });
-        await wallet.save();
-        res.status(200).json({ message: 'Available balance added successfully', statusCode: "200" });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message, statusCode: "500" });
-    }
-});
 
-// Deduct from available balance
-app.post('/wallet/:userId/balance/deduct', authenticateToken, async (req, res) => {
-    const { availableBalance } = req.body;
-    if (typeof availableBalance !== 'number') {
-        return res.status(400).json({ message: 'Available balance must be a number', statusCode: "400" });
-    }
+        // Optionally, delete the associated image file
+        if (content.imagePath) {
+            const imagePath = path.join(__dirname, 'uploads', path.basename(content.imagePath));
+            fs.unlink(imagePath, (err) => {
+                if (err) {
+                    console.error('Error deleting the image file:', err.message);
+                }
+            });
+        }
 
-    try {
-        const wallet = await Wallet.findOne({ userId: req.params.userId });
-        if (!wallet) {
-            return res.status(404).json({ message: 'Wallet not found', statusCode: "404" });
-        }
-        if (wallet.availableBalance < availableBalance) {
-            return res.status(400).json({ message: 'Insufficient balance', statusCode: "400" });
-        }
-        wallet.availableBalance -= availableBalance;
-        wallet.transactions.push({
-            type: 'debit',
-            amount: availableBalance,
-            description: 'Deducted from available balance'
-        });
-        await wallet.save();
-        res.status(200).json({ message: 'Available balance deducted successfully', statusCode: "200" });
+        // Delete the post
+        await Content.findByIdAndDelete(id);
+
+        res.status(200).json({ message: 'Content deleted successfully', statusCode: "200" });
     } catch (error) {
         res.status(500).json({ message: 'Server error', error: error.message, statusCode: "500" });
     }
@@ -305,8 +271,8 @@ app.post('/change-password', authenticateToken, async (req, res) => {
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
-        user: 'pharuqgbadegesin5@gmail.com',
-        pass: 'lbku wopz kvmb vtdz'
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
     }
 });
 
@@ -324,58 +290,45 @@ app.post('/request-password-reset', async (req, res) => {
             return res.status(404).json({ message: 'User not found', statusCode: "404" });
         }
 
-        const resetToken = Math.floor(1000 + Math.random() * 9000).toString();
-        const hashedResetToken = await bcrypt.hash(resetToken, 1);
+        const resetToken = jwt.sign({ id: user._id }, resetPasswordTokenSecret, { expiresIn: '1h' });
 
-        user.resetPasswordToken = hashedResetToken;
-        user.resetPasswordExpires = Date.now() + 3600000;
-        await user.save();
+        const resetLink = `${req.protocol}://${req.get('host')}/reset-password/${resetToken}`;
 
         const mailOptions = {
-            from: 'pharuqgbadegesin5@gmail.com',
-            to: email,
-            subject: 'Password Reset',
-            text: `Here is your password reset token: ${resetToken}`
+            from: process.env.EMAIL_USER,
+            to: user.email,
+            subject: 'Password Reset Request',
+            text: `Click on the following link to reset your password: ${resetLink}`,
         };
 
-        transporter.sendMail(mailOptions, (error, info) => {
-            if (error) {
-                console.error('Error sending email:', error);
-                return res.status(500).json({ message: 'Error sending email', error: error.message, statusCode: "500" });
-            }
-            console.log('Email sent:', info.response);
-            res.status(200).json({ message: 'Password reset token generated and sent via email', statusCode: "200" });
-        });
+        await transporter.sendMail(mailOptions);
+
+        res.status(200).json({ message: 'Password reset link sent', statusCode: "200" });
     } catch (error) {
         res.status(500).json({ message: 'Server error', error: error.message, statusCode: "500" });
     }
 });
 
 // Reset password
-app.post('/reset-password', async (req, res) => {
-    const { email, token, newPassword } = req.body;
+app.post('/reset-password/:resetToken', async (req, res) => {
+    const { resetToken } = req.params;
+    const { newPassword } = req.body;
 
-    if (!email || !token || !newPassword) {
-        return res.status(400).json({ message: 'Email, token, and new password are required', statusCode: "400" });
+    if (!newPassword) {
+        return res.status(400).json({ message: 'New password is required', statusCode: "400" });
     }
 
     try {
-        const user = await User.findOne({ email });
+        const decoded = jwt.verify(resetToken, resetPasswordTokenSecret);
+        const user = await User.findById(decoded.id);
         if (!user) {
             return res.status(404).json({ message: 'User not found', statusCode: "404" });
         }
-
-        // const isTokenValid = await bcrypt.compare(token, user.resetPasswordToken);
-        // if (!isTokenValid || user.resetPasswordExpires < Date.now()) {
-        //     return res.status(400).json({ message: 'Invalid or expired token', statusCode: "400" });
-        // }
 
         const saltRounds = 10;
         const hashedNewPassword = await bcrypt.hash(newPassword, saltRounds);
 
         user.password = hashedNewPassword;
-        user.resetPasswordToken = undefined;
-        user.resetPasswordExpires = undefined;
         await user.save();
 
         res.status(200).json({ message: 'Password reset successfully', statusCode: "200" });
@@ -384,7 +337,7 @@ app.post('/reset-password', async (req, res) => {
     }
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
-    console.log(`Server started at port ${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
 });
