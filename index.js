@@ -16,7 +16,7 @@ const app = express();
 app.use(express.json());
 app.use('/uploads', express.static('uploads')); 
 
-const mongoURI = process.env.MONGO_URI;
+const mongoURI = process.env.MONGO_URI || "mongodb+srv://gbadegesinpharuq:8ahPzXgHFMgdXucq@cluster0.g86pl.mongodb.net/";
 const jwtSecret = process.env.JWT_SECRET;
 const resetPasswordTokenSecret = process.env.RESET_PASSWORD_TOKEN_SECRET;
 
