@@ -17,8 +17,8 @@ app.use(express.json());
 app.use('/uploads', express.static('uploads')); 
 
 const mongoURI = process.env.MONGO_URI || "mongodb+srv://gbadegesinpharuq:8ahPzXgHFMgdXucq@cluster0.g86pl.mongodb.net/";
-const jwtSecret = process.env.JWT_SECRET;
-const resetPasswordTokenSecret = process.env.RESET_PASSWORD_TOKEN_SECRET;
+const jwtSecret = process.env.JWT_SECRET || "olaniyi";
+const resetPasswordTokenSecret = process.env.RESET_PASSWORD_TOKEN_SECRET || "inioluwa";
 
 if (!jwtSecret || !resetPasswordTokenSecret) {
     console.error("JWT_SECRET or RESET_PASSWORD_TOKEN_SECRET is not defined in environment variables.");
@@ -271,8 +271,8 @@ app.post('/change-password', authenticateToken, async (req, res) => {
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
+        user: 'dakieopay@gmail.com',
+        pass: "zdra ogin scdo psdh"
     }
 });
 
@@ -295,7 +295,7 @@ app.post('/request-password-reset', async (req, res) => {
         const resetLink = `${req.protocol}://${req.get('host')}/reset-password/${resetToken}`;
 
         const mailOptions = {
-            from: process.env.EMAIL_USER,
+            from: 'dakieopay@gmail.com',
             to: user.email,
             subject: 'Password Reset Request',
             text: `Click on the following link to reset your password: ${resetLink}`,
