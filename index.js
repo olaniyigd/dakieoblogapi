@@ -123,10 +123,10 @@ const authenticateToken = (req, res, next) => {
 
 // Post content with image
 app.post('/content', authenticateToken, upload.single('image'), async (req, res) => {
-    const { title, description } = req.body;
+    const { title, description, category } = req.body;
 
-    if (!title || !description || !req.file) {
-        return res.status(400).json({ message: 'Title, description, and image are required', statusCode: "400" });
+    if (!title || !description || !category || !req.file) {
+        return res.status(400).json({ message: 'Title, description, category, and image are required', statusCode: "400" });
     }
 
     try {
@@ -137,6 +137,7 @@ app.post('/content', authenticateToken, upload.single('image'), async (req, res)
             userId: req.user.id,
             title,
             description,
+            category,
             imagePath: imageUrl,
             createdAt: Date.now()
         });
@@ -149,14 +150,46 @@ app.post('/content', authenticateToken, upload.single('image'), async (req, res)
     }
 });
 
+// Get all content post
 app.get('/contents', authenticateToken, async (req, res) => {
     try {
-        const contents = await Content.find().populate('userId', 'username email'); // Populate the user's details
-        res.status(200).json({ contents, statusCode: "200" });
+        // Find all contents
+        const contents = await Content.find().populate('userId', 'username email');
+
+        // Initialize arrays for each category
+        const politicalContents = [];
+        const sportContents = [];
+        const entertainmentContents = [];
+
+        // Distribute contents into category arrays
+        contents.forEach(content => {
+            switch (content.category) {
+                case 'politics':
+                    politicalContents.push(content);
+                    break;
+                case 'sport':
+                    sportContents.push(content);
+                    break;
+                case 'entertainment':
+                    entertainmentContents.push(content);
+                    break;
+                default:
+                    break;
+            }
+        });
+
+        // Respond with categorized content arrays
+        res.status(200).json({
+            political: politicalContents,
+            sport: sportContents,
+            entertainment: entertainmentContents,
+            statusCode: "200"
+        });
     } catch (error) {
         res.status(500).json({ message: 'Server error', error: error.message, statusCode: "500" });
     }
 });
+
 
 // Get single content post
 app.get('/content/:id', authenticateToken, async (req, res) => {
@@ -186,10 +219,15 @@ app.put('/content/:id', authenticateToken, upload.single('image'), async (req, r
     }
 
     try {
-        // Find the post by ID
+        // Find the content post by ID
         const content = await Content.findById(id);
         if (!content) {
             return res.status(404).json({ message: 'Content not found', statusCode: "404" });
+        }
+
+        // Check if the user making the request is the owner of the content
+        if (content.userId.toString() !== req.user.id) {
+            return res.status(403).json({ message: 'Unauthorized to update this content', statusCode: "403" });
         }
 
         // Update fields if they are provided
@@ -207,15 +245,22 @@ app.put('/content/:id', authenticateToken, upload.single('image'), async (req, r
         res.status(500).json({ message: 'Server error', error: error.message, statusCode: "500" });
     }
 });
+
+
 // Delete content post
 app.delete('/content/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
 
     try {
-        // Find the post by ID
+        // Find the content post by ID
         const content = await Content.findById(id);
         if (!content) {
             return res.status(404).json({ message: 'Content not found', statusCode: "404" });
+        }
+
+        // Check if the user making the request is the owner of the content
+        if (content.userId.toString() !== req.user.id) {
+            return res.status(403).json({ message: 'Unauthorized to delete this content', statusCode: "403" });
         }
 
         // Optionally, delete the associated image file
@@ -228,7 +273,7 @@ app.delete('/content/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // Delete the post
+        // Delete the content post
         await Content.findByIdAndDelete(id);
 
         res.status(200).json({ message: 'Content deleted successfully', statusCode: "200" });
@@ -236,6 +281,7 @@ app.delete('/content/:id', authenticateToken, async (req, res) => {
         res.status(500).json({ message: 'Server error', error: error.message, statusCode: "500" });
     }
 });
+
 
 // Change password
 app.post('/change-password', authenticateToken, async (req, res) => {
