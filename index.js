@@ -13,18 +13,11 @@ const Content = require('./Content');
 
 dotenv.config();
 const app = express();
-const allowedOrigins = ['http://localhost:3000']; // Add your frontend domain here
 app.use(cors({
-    origin: (origin, callback) => {
-        // Allow requests with no origin (e.g. mobile apps or Postman) or check if origin is allowed
-        if (!origin || allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            callback(new Error('Not allowed by CORS'));
-        }
-    },
-    credentials: true // If you are using cookies or HTTP authentication
-}));
+    origin: 'http://localhost:3000',  // Replace with your local frontend's origin
+    methods: 'GET,POST,PUT,DELETE',    // Specify the allowed HTTP methods
+    credentials: true,                 // If you need to allow cookies or other credentials
+  }));
 
 
 app.use(express.json());
