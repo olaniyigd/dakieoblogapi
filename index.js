@@ -5,6 +5,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 const multer = require('multer');
+const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const User = require('./User'); 
@@ -12,6 +13,19 @@ const Content = require('./Content');
 
 dotenv.config();
 const app = express();
+const allowedOrigins = ['http://localhost:3000']; // Add your frontend domain here
+app.use(cors({
+    origin: (origin, callback) => {
+        // Allow requests with no origin (e.g. mobile apps or Postman) or check if origin is allowed
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true // If you are using cookies or HTTP authentication
+}));
+
 
 app.use(express.json());
 app.use('/uploads', express.static('uploads')); 
@@ -150,11 +164,17 @@ app.post('/content', authenticateToken, upload.single('image'), async (req, res)
     }
 });
 
-// Get all content post
-app.get('/contents', authenticateToken, async (req, res) => {
+// Get all content post without token
+app.get('/contents', async (req, res) => {
     try {
-        // Find all contents
+        // Find all contents and populate user details (username, email)
         const contents = await Content.find().populate('userId', 'username email');
+
+        // Set topContents as an empty array for testing
+        const topContents = await Content.find().sort({ views: -1 }).limit(5);
+
+        // Find the 5 latest contents (sorted by createdAt, descending order)
+        const latestContents = await Content.find().sort({ createdAt: -1 }).limit(5);
 
         // Initialize arrays for each category
         const politicalContents = [];
@@ -178,8 +198,10 @@ app.get('/contents', authenticateToken, async (req, res) => {
             }
         });
 
-        // Respond with categorized content arrays
+        // Respond with categorized content arrays, including top and latest content
         res.status(200).json({
+            topContent: topContents,    // Updated with the most viewed contents
+            latest: latestContents,     // The 5 most recent contents based on createdAt
             political: politicalContents,
             sport: sportContents,
             entertainment: entertainmentContents,
@@ -191,22 +213,30 @@ app.get('/contents', authenticateToken, async (req, res) => {
 });
 
 
-// Get single content post
-app.get('/content/:id', authenticateToken, async (req, res) => {
+
+
+// Get single content post (without token)
+app.get('/content/:id', async (req, res) => {
     const { id } = req.params;
 
     try {
-        // Find the post by ID
+        // Find the content by ID and populate user details
         const content = await Content.findById(id).populate('userId', 'username email');
         if (!content) {
             return res.status(404).json({ message: 'Content not found', statusCode: "404" });
         }
 
+        // Increment the view count for the content
+        content.views = (content.views || 0) + 1;
+        await content.save();
+
+        // Respond with the content
         res.status(200).json({ content, statusCode: "200" });
     } catch (error) {
         res.status(500).json({ message: 'Server error', error: error.message, statusCode: "500" });
     }
 });
+
 
 // Update content post
 app.put('/content/:id', authenticateToken, upload.single('image'), async (req, res) => {
