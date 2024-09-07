@@ -13,15 +13,21 @@ const Content = require('./Content');
 
 dotenv.config();
 const app = express();
-app.use(cors({
-    origin: 'http://localhost:3000',  // Replace with your local frontend's origin
-    methods: 'GET,POST,PUT,DELETE',    // Specify the allowed HTTP methods
-    credentials: true,                 // If you need to allow cookies or other credentials
-  }));
 
 
 app.use(express.json());
 app.use('/uploads', express.static('uploads')); 
+
+
+// Update CORS to allow specific methods like POST
+app.use(cors({
+    origin: 'http://localhost:3000',  // Your frontend origin
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],  // Explicitly list allowed methods
+    credentials: true,                 // If you're dealing with cookies/sessions
+  }));
+  
+  // Handle preflight requests for all routes
+  app.options('*', cors());
 
 const mongoURI = process.env.MONGO_URI;
 const jwtSecret = process.env.JWT_SECRET;
