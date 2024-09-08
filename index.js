@@ -138,8 +138,6 @@ const authenticateToken = (req, res, next) => {
 app.post('/content', authenticateToken, upload.single('image'), async (req, res) => {
     const { title, description, category } = req.body;
 
-    // Retrieve the API base URL from either the environment variable or request headers
-    const baseUrl = process.env.HOST_API_URL || req.get('API-Base-URL') || `${req.protocol}://${req.get('host')}`;
 
     if (!title || !description || !category || !req.file) {
         return res.status(400).json({ message: 'Title, description, category, and image are required', statusCode: "400" });
@@ -147,7 +145,12 @@ app.post('/content', authenticateToken, upload.single('image'), async (req, res)
 
     try {
         // Construct the image URL with the dynamic base URL
-        const imageUrl = `${baseUrl}/uploads/${req.file.filename}`;
+        const imageUrl = `${
+            process.env.NODE_ENV === 'production'
+              ? process.env.PROD_HOST_API_URL
+              : process.env.HOST_API_URL
+          }/uploads/${req.file.filename}`;
+         
 
         const newContent = new Content({
             userId: req.user.id,
