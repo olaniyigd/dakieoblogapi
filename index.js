@@ -138,13 +138,16 @@ const authenticateToken = (req, res, next) => {
 app.post('/content', authenticateToken, upload.single('image'), async (req, res) => {
     const { title, description, category } = req.body;
 
+    // Retrieve the API base URL from either the environment variable or request headers
+    const baseUrl = process.env.API_BASE_URL || req.get('API-Base-URL') || `${req.protocol}://${req.get('host')}`;
+
     if (!title || !description || !category || !req.file) {
         return res.status(400).json({ message: 'Title, description, category, and image are required', statusCode: "400" });
     }
 
     try {
-        // Construct the image URL
-        const imageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+        // Construct the image URL with the dynamic base URL
+        const imageUrl = `${baseUrl}/uploads/${req.file.filename}`;
 
         const newContent = new Content({
             userId: req.user.id,
@@ -162,6 +165,7 @@ app.post('/content', authenticateToken, upload.single('image'), async (req, res)
         res.status(500).json({ message: 'Server error', error: error.message, statusCode: "500" });
     }
 });
+
 
 // Get all content post without token
 app.get('/contents', async (req, res) => {
@@ -243,6 +247,9 @@ app.put('/content/:id', authenticateToken, upload.single('image'), async (req, r
     const { title, description } = req.body;
     const { file } = req;
 
+    // Retrieve the API base URL from environment or headers
+    const baseUrl = process.env.API_BASE_URL || req.get('API-Base-URL') || `${req.protocol}://${req.get('host')}`;
+
     if (!title && !description && !file) {
         return res.status(400).json({ message: 'At least one of title, description, or image is required', statusCode: "400" });
     }
@@ -264,7 +271,7 @@ app.put('/content/:id', authenticateToken, upload.single('image'), async (req, r
         if (description) content.description = description;
         if (file) {
             // Update the image URL if a new image is uploaded
-            content.imagePath = `${req.protocol}://${req.get('host')}/uploads/${file.filename}`;
+            content.imagePath = `${baseUrl}/uploads/${file.filename}`;
         }
 
         await content.save();
